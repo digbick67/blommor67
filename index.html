@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <title>Blomigenkänning – UteBlommanUf</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+
+  <style>
+    body { font-family: Arial, sans-serif; background:#f5f5f5; padding:20px; }
+    .container { max-width:900px; margin:auto; background:white; padding:20px; border-radius:8px; }
+    .status { padding:10px; border-radius:6px; margin-bottom:15px; }
+    .loading { background:#e8f0fe; color:#174ea6; }
+    .ok { background:#e6f4ea; color:#0b6b2b; }
+    .error { background:#fdecea; color:#b3261e; }
+    #previewImage { max-width:260px; display:none; border:1px solid #ddd; border-radius:6px; }
+    button { padding:10px 20px; border:none; border-radius:20px; background:#174ea6; color:white; cursor:pointer; }
+    button:disabled { background:#9aa0a6; }
+    .result { margin-top:15px; padding:15px; background:#fafafa; border:1px solid #ddd; border-radius:6px; display:none; }
+    .badge { padding:3px 8px; border-radius:12px; font-size:0.8rem; }
+    .badge-safe { background:#e6f4ea; color:#0b6b2b; }
+    .badge-uncertain { background:#fff4e5; color:#8a4b00; }
+    .badge-very-uncertain { background:#fdecea; color:#b3261e; }
+  </style>
+</head>
+
+<body>
+<div class="container">
+  <h1>Blomigenkänning – UteBlommanUf</h1>
+  <p>Ladda upp en bild på en blomma så försöker modellen avgöra vilken art det är.</p>
+
+  <div id="modelStatus" class="status loading">Modellen laddas …</div>
+
+  <input type="file" id="imageInput" accept="image/*" />
+  <br><br>
+  <img id="previewImage" />
+
+  <br><br>
+  <button id="predictButton" disabled>Klassificera blomman</button>
+
+  <div class="result" id="resultBox">
+    <p id="predictionText"></p>
+    <p id="probabilityText"></p>
+    <p id="certaintyText"></p>
+  </div>
+
+  <footer style="margin-top:30px; font-size:0.9rem; color:#555;">
+    Skapad av <strong>UteBlommanUf</strong> 🌸<br>
+    Modellfilerna ligger i mappen <code>modellen</code>.
+  </footer>
+</div>
+
+<script>
+  // === KLASSNAMN – justera efter din modell ===
+  const CLASS_NAMES = ["Blomma 1", "Blomma 2", "Blomma 3", "Blomma 4", "Blomma 5"];
+
+  // === MODELLSÖKVÄG (uppdaterad enligt din begäran) ===
+  const MODEL_PATH = "modellen/model.json";
+
+  let model = null;
+
+  const modelStatusEl = document.getElementById("modelStatus");
+  const imageInputEl = document.getElementById("imageInput");
+  const previewImageEl = document.getElementById("previewImage");
+  const predictButtonEl = document.getElementById("predictButton");
+  const resultBoxEl = document.getElementById("resultBox");
+  const predictionTextEl = document.getElementById("predictionText");
+  const probabilityTextEl = document.getElementById("probabilityText");
+  const certaintyTextEl = document.getElementById("certaintyText");
+
+  // === Ladda modellen ===
+  async function loadModel() {
+    try {
+      model = await tf.loadLayersModel(MODEL_PATH);
+      modelStatusEl.textContent = "Modellen är laddad!";
+      modelStatusEl.className = "status ok";
+      predictButtonEl.disabled = false;
+    } catch (err) {
+      modelStatusEl.textContent = "Fel: kunde inte ladda modellen.";
+      modelStatusEl.className = "status error";
+      console.error(err);
+    }
+  }
+  loadModel();
+
+  // === Förhandsvisning ===
+  imageInputEl.addEventListener("change", e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = ev => {
+      previewImageEl.src = ev.target.result;
+      previewImageEl.style.display = "block";
+      resultBoxEl.style.display = "none";
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // === Förbehandling ===
+  function preprocess(img) {
+    return tf.tidy(() => {
+      return tf.browser.fromPixels(img)
+        .resizeBilinear([224, 224])
+        .toFloat()
+        .div(255)
+        .expandDims(0);
+    });
+  }
+
+  // === Prediktion ===
+  async function predict() {
+    if (!previewImageEl.src) return;
+
+    const input = preprocess(previewImageEl);
+    const prediction = model.predict(input);
+    const probs = await prediction.data();
+
+    let maxProb = -1;
+    let maxIndex = -1;
+    probs.forEach((p, i) => { if (p > maxProb) { maxProb = p; maxIndex = i; } });
+
+    const bestClass = CLASS_NAMES[maxIndex] || `Klass ${maxIndex}`;
+    const percent = (maxProb * 100).toFixed(1);
+
+    let certainty = "";
+    let badge = "";
+    if (maxProb >= 0.75) { certainty = "Relativt säker"; badge = "badge-safe"; }
+    else if (maxProb >= 0.5) { certainty = "Osäker"; badge = "badge-uncertain"; }
+    else { certainty = "Mycket osäker"; badge = "badge-very-uncertain"; }
+
+    predictionTextEl.innerHTML = `Art: <strong>${bestClass}</strong>`;
+    probabilityTextEl.textContent = `Sannolikhet: ${percent}%`;
+    certaintyTextEl.innerHTML = `Bedömning: ${certainty} <span class="badge ${badge}">${maxProb.toFixed(2)}</span>`;
+
+    resultBoxEl.style.display = "block";
+
+    prediction.dispose();
+    input.dispose();
+  }
+
+  predictButtonEl.addEventListener("click", predict);
+</script>
+
+</body>
+</html>
